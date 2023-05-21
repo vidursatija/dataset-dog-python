@@ -1,17 +1,19 @@
+import base64
 import functools
 import inspect
 import os
 import pickle
 import random
-import base64
-from typing import Any, Callable, Dict, Tuple, List
 import signal
-from . import datamodels
+from typing import Any, Callable, Dict, Tuple
 
-from . import worker
+from . import datamodels, worker
 
 class DatasetDog:
-    def __init__(self, server_url: str, api_key: str):
+    def __init__(self, server_url: str, project_id: str, project_secret: str):
+        api_key = base64.b64encode(f"{project_id}:{project_secret}".encode()).decode(
+            "utf-8"
+        )
         self.worker = worker.BackgroundWorker(server_url, api_key)
         self.worker.start()
         signal.signal(signal.SIGINT, self.worker.kill)
@@ -27,15 +29,19 @@ class DatasetDog:
         kwargs: Dict[str, Any],
         res: Any
     ):
-        b64_args = base64.b64encode(pickle.dumps(args)).decode("utf-8")
-        b64_kwargs = base64.b64encode(pickle.dumps(kwargs)).decode("utf-8")
-        b64_res = base64.b64encode(pickle.dumps(res)).decode("utf-8")
-        function_info = datamodels.FunctionInformation(
-            function_name=function_name,
-            args=b64_args,
-            kwargs=b64_kwargs,
-            res=b64_res,
-        )
+        try:
+            b64_args = pickle.dumps(args)
+            b64_kwargs = pickle.dumps(kwargs)
+            b64_res = pickle.dumps(res)
+            function_info = datamodels.FunctionInformation(
+                function_name=function_name,
+                args=b64_args,
+                kwargs=b64_kwargs,
+                res=b64_res,
+            )
+        except Exception as e:
+            print(e)
+            return
         self.worker.submit(function_info)
 
     @staticmethod
@@ -58,8 +64,21 @@ class DatasetDog:
 
         def decorator(func: Callable):
             function_name = func.__name__
-            function_path = os.path.abspath(inspect.getmodule(func).__file__)[:-3]
+            func_module = inspect.getmodule(func)
+            if func_module is None:
+                raise Exception(
+                    f"DatasetDog: Failed to record function {function_name}."
+                    " Functions must be defined in a module."
+                )
+            module_path = func_module.__file__
+            if not module_path:
+                raise Exception(
+                    f"DatasetDog: Failed to record function {function_name}."
+                    " Functions must be defined in a module."
+                )
+            function_path = os.path.abspath(module_path)[:-3]
             full_function_name = f"{function_path}.{function_name}"
+
             @functools.wraps(func)
             async def awrapper(*args, **kwargs):
                 res = await func(*args, **kwargs)
@@ -84,4 +103,3 @@ class DatasetDog:
                 return wrapper
 
         return decorator
-
