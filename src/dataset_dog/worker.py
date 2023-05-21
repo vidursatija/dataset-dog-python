@@ -21,14 +21,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
-import aiohttp
 import asyncio
+import base64
+import gzip
 import logging
 import os
+import queue
 import threading
 from typing import Any, Callable, Coroutine, Optional
+
+import aiohttp
+
 from . import datamodels
-import queue
 
 logger = logging.getLogger()
 
@@ -42,7 +46,9 @@ class BackgroundWorker:
         self.api_key = api_key
         self._tcp_conn = None
         self._loop = None
-        self._queue: queue.Queue[datamodels.FunctionInformation] = queue.Queue()
+        self._queue: queue.Queue[
+            Optional[datamodels.FunctionInformation]
+        ] = queue.Queue()
         self._thread: Optional[threading.Thread] = None
         self._thread_for_pid: Optional[int] = None
         self.max_tasks = max_tasks
@@ -68,7 +74,7 @@ class BackgroundWorker:
             self._thread.start()
             self._thread_for_pid = os.getpid()
 
-    def kill(self):
+    def kill(self, *args, **kwargs):
         """
         Kill worker thread. Returns immediately. Not useful for
         waiting on shutdown for events, use `flush` for that.
@@ -104,17 +110,20 @@ class BackgroundWorker:
                 raise_for_status=True,
                 loop=self._loop,
             ) as session:
+                args = base64.b64encode(gzip.compress(function_info.args))
+                kwargs = base64.b64encode(gzip.compress(function_info.kwargs))
+                res = base64.b64encode(gzip.compress(function_info.res))
                 async with session.post(
                     f"{self.server_url}/api/v1/function_records/",
                     json={
                         "functionName": function_info.function_name,
                         "dataType": "pickle",
                         "dataDump": {
-                            "args": function_info.args,
-                            "kwargs": function_info.kwargs,
-                            "res": function_info.res,
+                            "args": args,
+                            "kwargs": kwargs,
+                            "res": res,
                         },
-                        "tags": {}, ## TODO: add device info
+                        "tags": {},  # TODO: add device info
                     },
                     headers={
                         "Content-Type": "application/json",
@@ -132,7 +141,7 @@ class BackgroundWorker:
             if len(active_tasks) >= self.max_tasks:
                 try:
                     await asyncio.gather(*active_tasks)
-                except:
+                except Exception:
                     logger.error("Failed submitting job", exc_info=True)
                 active_tasks = []
             function_info = self._queue.get()
