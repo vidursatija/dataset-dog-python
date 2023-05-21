@@ -17,7 +17,6 @@ dd = DatasetDog("<API SERVER>", "<PROJECT ID>", "<API SECRET>")
 def api1(a: float = 1.0, b: float = 2.0) -> float:
     return a + b
 ```
-<<<<<<< HEAD
 
 - Skip recording sensitive arguments
 
@@ -27,10 +26,3 @@ def api1(a: float = 1.0, b: float = 2.0) -> float:
 def api1(a: float = 1.0, b: float = 2.0) -> float:
     return a + b
 ```
-
-## TODO
-- Documentation
-- Examples
-- Pypi
-=======
->>>>>>> master
