@@ -5,7 +5,7 @@ import os
 import pickle
 import random
 import signal
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from . import datamodels, worker
 
@@ -45,7 +45,38 @@ class DatasetDog:
             return
         self.worker.submit(function_info)
 
-    def record_function(self, frequency: float):
+    @staticmethod
+    def get_filtered_arguments(
+        function: Callable,
+        args: Tuple[Any, ...],
+        kwargs: Dict[str, Any],
+        skip_args: List[str],
+    ) -> Tuple[Tuple[str], Dict[str, Any]]:
+        """Filter out arguments that should not be recorded
+
+        :param function: function to filter arguments for
+        :param args: arguments
+        :param kwargs: keyword arguments
+        :param skip_args: arguments to skip
+
+        :return: filtered arguments
+        """
+        arg_size = function.__code__.co_argcount
+        arg_values = function.__code__.co_varnames
+        arg_map = dict(zip(arg_values[:arg_size], args))
+
+        filtered_args = tuple([
+            _value for _key, _value in arg_map.items()
+            if _key not in skip_args
+        ])
+        filtered_kwargs = {
+            _key: _value for _key, _value in kwargs.items()
+            if _key not in skip_args
+        }
+
+        return filtered_args, filtered_kwargs
+
+    def record_function(self, frequency: float, skip_args: List[str] = []):
         assert frequency > 0 and frequency <= 1
 
         def decorator(func: Callable):
@@ -68,15 +99,33 @@ class DatasetDog:
             @functools.wraps(func)
             async def awrapper(*args, **kwargs):
                 res = await func(*args, **kwargs)
+                filtered_args, filtered_kwargs = self.get_filtered_arguments(
+                    func, args, kwargs, skip_args
+                )
+
                 if random.random() < frequency:
-                    self._submit_callback(full_function_name, args, kwargs, res)
+                    self._submit_callback(
+                        full_function_name,
+                        filtered_args,
+                        filtered_kwargs,
+                        res
+                    )
                 return res
 
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
                 res = func(*args, **kwargs)
+                filtered_args, filtered_kwargs = self.get_filtered_arguments(
+                    func, args, kwargs, skip_args
+                )
+
                 if random.random() < frequency:
-                    self._submit_callback(full_function_name, args, kwargs, res)
+                    self._submit_callback(
+                        full_function_name,
+                        filtered_args,
+                        filtered_kwargs,
+                        res
+                    )
                 return res
 
             if inspect.iscoroutinefunction(func):

@@ -7,13 +7,22 @@ python3 -m pip install git+https://github.com/vidursatija/dataset-dog-python.git
 ```
 
 ## Usage
-```python
+```python3
 from dataset_dog import DatasetDog
 
 
 dd = DatasetDog("<API SERVER>", "<PROJECT ID>", "<API SECRET>")
 
 @dd.record_function(frequency=0.5)
+def api1(a: float = 1.0, b: float = 2.0) -> float:
+    return a + b
+```
+
+- Skip recording sensitive arguments
+
+```python3
+# say `b` is a sensitive argument, and we don't want to record it
+@dd.record_function(frequency=0.5, skip_args=["b"])
 def api1(a: float = 1.0, b: float = 2.0) -> float:
     return a + b
 ```
